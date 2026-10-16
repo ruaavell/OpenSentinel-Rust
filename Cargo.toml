@@ -1,0 +1,21 @@
+[package]
+name = "opensentinel"
+version = "0.1.0"
+edition = "2021"
+description = "OpenSentinel — a lightweight, open-source antivirus scanner written in Rust"
+license = "MIT"
+repository = "https://github.com/ruaavell/OpenSentinel-Rust"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+thiserror = "2.0"
+rand = "0.9"
+signal-hook = "0.3"
+
+[target.'cfg(unix)'.dependencies]
+signal-hook-registry = "1.1"
+
+[profile.release]
+lto = true
