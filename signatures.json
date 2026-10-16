@@ -2,7 +2,7 @@
   "version": 1,
   "entries": [
     {
-      "sha256": "275a021bb4d4d8f6d677a1f734dd36d4aec01a5db2cd9253facf75613a2e31e9",
+      "sha256": "2695e2bfb32ccb4c51ac3dd2d6c8d4c44e3f5642b1f64c1c88dec48591244361",
       "name": "EICAR-Test-Signature",
       "severity": "high"
     }
