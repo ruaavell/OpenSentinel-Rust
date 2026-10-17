@@ -202,13 +202,22 @@ fn restore_in(id: &str, root: &Path) -> Result<PathBuf, Error> {
             n += 1;
         }
     }
-    // Refuse a restore target that escapes a trusted directory: the
-    // recorded original path must have at least two components (i.e. a
-    // directory plus a file name). A bare "a.txt" is rejected.
-    if e.original_path.components().count() < 2 {
+    // Refuse a restore target that could escape via traversal. The index
+    // is untrusted/attacker-tamperable, so `original_path` from a forged
+    // entry must not escape the path it specifies: any `..` (ParentDir)
+    // component is rejected. A bare filename is also rejected (fewer than
+    // 2 components) since we cannot determine a safe restore directory.
+    if e.original_path
+            .components()
+            .any(|c| c == std::path::Component::ParentDir)
+        || e.original_path.components().count() < 2
+    {
         return Err(Error::new(
             ErrorKind::Quarantine,
-            "original path is not valid for restore",
+            format!(
+                "original path {:?} is not safe for restore (no '..' traversal, needs a directory + filename)",
+                e.original_path
+            ),
         ));
     }
     fs::rename(&src, &dest).map_err(|e| {
@@ -341,6 +350,57 @@ mod tests {
         };
         assert_ne!(cand, dest);
         fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn restore_rejects_traversal_path() {
+        // A forged index entry with a `..`-traversal original_path must not
+        // be restored to an arbitrary location. The restore should error,
+        // not move the quarantined file outside the expected tree.
+        let tmp = std::env::temp_dir().join(format!("os-qtest-traversal-{}", new_id()));
+        let q = tmp.join("q");
+        fs::create_dir_all(&q).unwrap();
+        let original = tmp.join("payload.bin");
+        std::fs::write(&original, b"data").unwrap();
+        let entry = quarantine_add(&original, &q).unwrap();
+
+        // Tamper the index: rewrite the entry's original_path to traverse.
+        let index = q.join("index.jsonl");
+        let bad = format!(
+            r#"{{"id":"{}","original_path":"../../../../evil.txt","sha256":"{}","quarantined_at":"2026-01-01T00:00:00Z"}}"#,
+            entry.id, entry.sha256
+        );
+        std::fs::write(&index, bad).unwrap();
+
+        let r = restore_in(&entry.id, &q);
+        assert!(r.is_err(), "traversal original_path must be rejected");
+        // The quarantined file must still be in the store.
+        assert!(q.join(&entry.id).is_file(), "file must not have moved");
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn restore_rejects_traversal_relative() {
+        // A relative path that tries to climb out via `..` must be rejected
+        // even if it has multiple components.
+        let tmp = std::env::temp_dir().join(format!("os-qtest-reltrav-{}", new_id()));
+        let q = tmp.join("q");
+        fs::create_dir_all(&q).unwrap();
+        let original = tmp.join("payload.bin");
+        std::fs::write(&original, b"data").unwrap();
+        let entry = quarantine_add(&original, &q).unwrap();
+
+        let index = q.join("index.jsonl");
+        let bad = format!(
+            r#"{{"id":"{}","original_path":"../../evil.txt","sha256":"{}","quarantined_at":"2026-01-01T00:00:00Z"}}"#,
+            entry.id, entry.sha256
+        );
+        std::fs::write(&index, bad).unwrap();
+
+        let r = restore_in(&entry.id, &q);
+        assert!(r.is_err(), "traversal original_path must be rejected");
+        assert!(q.join(&entry.id).is_file(), "file must not have moved");
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
