@@ -6,6 +6,18 @@ description = "OpenSentinel — a lightweight, open-source antivirus scanner wri
 license = "MIT"
 repository = "https://github.com/ruaavell/OpenSentinel-Rust"
 
+[lib]
+name = "opensentinel"
+path = "src/lib.rs"
+
+[[bin]]
+name = "opensentinel"
+path = "src/main.rs"
+
+[[bin]]
+name = "opensentinel-gui"
+path = "src/bin/gui.rs"
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -13,6 +25,9 @@ sha2 = "0.10"
 thiserror = "2.0"
 rand = "0.9"
 signal-hook = "0.3"
+eframe = "0.37.0"
+egui = "0.37.0"
+egui_extras = "0.37.0"
 
 [target.'cfg(unix)'.dependencies]
 signal-hook-registry = "1.1"

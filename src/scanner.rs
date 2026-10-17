@@ -131,6 +131,15 @@ impl Default for CancelToken {
     }
 }
 
+/// One progress update reported while scanning. Sent per classified file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProgressEvent {
+    /// A file finished classification.
+    FileDone,
+    /// An error or skip was recorded.
+    FileSkippedOrErrored,
+}
+
 /// Scan a list of paths (files or directories) recursively. Results are
 /// appended to `results` in encounter order. Cancellation stops the walk and
 /// returns `ErrorKind::Cancelled` with whatever was collected so far.
@@ -140,22 +149,61 @@ pub fn scan_paths(
     engine: &Engine,
     results: &mut Vec<FileResult>,
 ) -> Result<(), Error> {
+    scan_paths_with_progress(paths, cfg, engine, results, None)
+}
+
+/// Same as `scan_paths`, but with an optional progress channel. Each event is
+/// sent per finished/skipped file — one send is cheap, the receiver can
+/// coalesce however it likes.
+pub fn scan_paths_with_progress(
+    paths: &[String],
+    cfg: &Config,
+    engine: &Engine,
+    results: &mut Vec<FileResult>,
+    progress: Option<&std::sync::mpsc::Sender<ProgressEvent>>,
+) -> Result<(), Error> {
+    scan_paths_full(
+        paths,
+        cfg,
+        engine,
+        results,
+        progress,
+        &std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )
+}
+
+/// Full form: explicit external stop flag so a GUI can cancel a running scan
+/// without going through SIGINT.
+pub fn scan_paths_full(
+    paths: &[String],
+    cfg: &Config,
+    engine: &Engine,
+    results: &mut Vec<FileResult>,
+    progress: Option<&std::sync::mpsc::Sender<ProgressEvent>>,
+    stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> Result<(), Error> {
     let cancel = CancelToken::new();
     cancel.on_sigint();
 
     for p in paths {
         let pb = PathBuf::from(p);
+        if stop.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(Error::new(ErrorKind::Cancelled, "scan cancelled by user"));
+        }
         match std::fs::symlink_metadata(&pb) {
             Ok(m) => {
                 let ft = m.file_type();
                 if ft.is_dir() {
-                    walk_dir(&pb, cfg, engine, &cancel, results);
+                    walk_dir(&pb, cfg, engine, &cancel, results, progress, stop);
                 } else if ft.is_file() {
-                    classify_file(&pb, cfg, engine, &cancel, results);
+                    classify_file(&pb, cfg, engine, &cancel, results, progress, stop);
                 } else {
                     results.push(FileResult::Skipped(
                         "special file (not a regular file)".into(),
                     ));
+                    if let Some(ch) = progress {
+                        let _ = ch.send(ProgressEvent::FileSkippedOrErrored);
+                    }
                 }
             }
             Err(e) => {
@@ -168,6 +216,9 @@ pub fn scan_paths(
                     path: pb,
                     message: msg,
                 }));
+                if let Some(ch) = progress {
+                    let _ = ch.send(ProgressEvent::FileSkippedOrErrored);
+                }
             }
         }
         if cancel.is_cancelled() {
@@ -210,11 +261,13 @@ fn walk_dir(
     engine: &Engine,
     cancel: &CancelToken,
     results: &mut Vec<FileResult>,
+    progress: Option<&std::sync::mpsc::Sender<ProgressEvent>>,
+    stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) {
     let mut stack: Vec<PathBuf> = vec![dir.to_path_buf()];
     let mut seen: HashSet<u64> = inode_set(dir);
     while let Some(d) = stack.pop() {
-        if cancel.is_cancelled() {
+        if cancel.is_cancelled() || stop.load(Ordering::Relaxed) {
             return;
         }
         if is_excluded(&d, cfg) {
@@ -259,16 +312,22 @@ fn walk_dir(
                 if let Some(ino) = inode_of(&m) {
                     if !seen.insert(ino) {
                         results.push(FileResult::Skipped("symlink loop".into()));
+                        if let Some(ch) = progress {
+                            let _ = ch.send(ProgressEvent::FileSkippedOrErrored);
+                        }
                         continue;
                     }
                 }
                 stack.push(p);
             } else if m.is_file() {
-                classify_file(&p, cfg, engine, cancel, results);
+                classify_file(&p, cfg, engine, cancel, results, progress, stop);
             } else {
                 results.push(FileResult::Skipped(
                     "special file (device, pipe, etc.)".into(),
                 ));
+                if let Some(ch) = progress {
+                    let _ = ch.send(ProgressEvent::FileSkippedOrErrored);
+                }
             }
         }
     }
@@ -308,13 +367,18 @@ fn classify_file(
     engine: &Engine,
     cancel: &CancelToken,
     results: &mut Vec<FileResult>,
+    progress: Option<&std::sync::mpsc::Sender<ProgressEvent>>,
+    stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) {
-    if cancel.is_cancelled() {
+    if cancel.is_cancelled() || stop.load(Ordering::Relaxed) {
         results.push(FileResult::Skipped("cancelled".into()));
         return;
     }
     if is_excluded(p, cfg) {
         results.push(FileResult::Skipped("excluded by config".into()));
+        if let Some(ch) = progress {
+            let _ = ch.send(ProgressEvent::FileSkippedOrErrored);
+        }
         return;
     }
     let file = match std::fs::File::open(p) {
@@ -324,6 +388,9 @@ fn classify_file(
                 path: p.to_path_buf(),
                 message: e.to_string(),
             }));
+            if let Some(ch) = progress {
+                let _ = ch.send(ProgressEvent::FileSkippedOrErrored);
+            }
             return;
         }
     };
@@ -334,6 +401,9 @@ fn classify_file(
                 path: p.to_path_buf(),
                 message: e.to_string(),
             }));
+            if let Some(ch) = progress {
+                let _ = ch.send(ProgressEvent::FileSkippedOrErrored);
+            }
             return;
         }
     };
@@ -342,6 +412,9 @@ fn classify_file(
         results.push(FileResult::Skipped(format!(
             "size {size} exceeds max_file_size"
         )));
+        if let Some(ch) = progress {
+            let _ = ch.send(ProgressEvent::FileSkippedOrErrored);
+        }
         return;
     }
     match engine.classify(p, &file, &meta) {
@@ -351,12 +424,25 @@ fn classify_file(
                 Classification::Detected { .. } => results.push(FileResult::Detected(det)),
                 Classification::Suspicious { .. } => results.push(FileResult::Suspicious(det)),
             }
+            if let Some(ch) = progress {
+                let _ = ch.send(ProgressEvent::FileDone);
+            }
         }
-        Ok(None) => results.push(FileResult::Clean(p.to_path_buf())),
-        Err(e) => results.push(FileResult::Error(FileError {
-            path: p.to_path_buf(),
-            message: e.to_string(),
-        })),
+        Ok(None) => {
+            results.push(FileResult::Clean(p.to_path_buf()));
+            if let Some(ch) = progress {
+                let _ = ch.send(ProgressEvent::FileDone);
+            }
+        }
+        Err(e) => {
+            results.push(FileResult::Error(FileError {
+                path: p.to_path_buf(),
+                message: e.to_string(),
+            }));
+            if let Some(ch) = progress {
+                let _ = ch.send(ProgressEvent::FileSkippedOrErrored);
+            }
+        }
     }
 }
 

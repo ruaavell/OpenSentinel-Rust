@@ -23,16 +23,22 @@ suspicious files, without telemetry, ads, paywalls, or a mandatory account.
 - **Safe quarantine**: files are *moved* into an isolated store with an
   unguessable ID; restore **never overwrites** an existing file.
 - **CLI** with human and `--json` output, proper exit codes.
+- **Desktop GUI** (`opensentinel-gui`): overview, scan, quarantine,
+  threat-database, activity, and settings screens, all backed by the real
+  engine — scanning runs on a background thread so the window stays
+  responsive, and the only progress shown is the real file counter (never a
+  fabricated percentage).
 - **Automated tests**: SHA-256 vectors, signature round-trip, quarantine
-  move/restore/collision lifecycle, non-ASCII filenames, EICAR artifact.
+  move/restore/collision lifecycle, non-ASCII filenames, EICAR artifact,
+  and UI-independent state-transition tests.
 
 ## What does *not* work yet (planned, not shipped)
 
 - Real-time / on-access protection (Windows kernel integration, Linux FUSE)
 - YARA rule scanning
 - Community threat-intelligence update with signed manifests
-- GUI
 - ClamAV third-party engine
+- GUI: dark theme, native folder picker, persistent activity history
 
 These are intentionally not faked. The CLI will not claim a database update
 works before that system is real.
@@ -45,6 +51,15 @@ Build and run the CLI:
 cargo build
 ./target/debug/opensentinel --help
 ```
+
+Build and launch the desktop GUI:
+
+```sh
+cargo run --bin opensentinel-gui
+```
+
+(The GUI binary is `opensentinel-gui`; the library and CLI share the same
+scanner/detection/quarantine code — the GUI adds no duplicate engine.)
 
 Scan a directory:
 

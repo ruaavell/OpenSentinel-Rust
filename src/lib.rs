@@ -9,13 +9,19 @@ mod error;
 mod quarantine;
 mod scanner;
 
+pub mod gui;
+
 pub use config::{Config, HeuristicSensitivity};
 pub use detection::{load_signatures, Classification, Detection, Engine, Severity};
 pub use error::{Error, ErrorKind, Result};
 pub use quarantine::{
-    list_quarantined, quarantine_add, quarantine_purge, quarantine_restore, QuarantineEntry,
+    list_quarantined, list_quarantined_in, quarantine_add, quarantine_purge, quarantine_purge_in,
+    quarantine_restore, QuarantineEntry,
 };
-pub use scanner::{hash_file, hash_stream, scan_paths, FileResult, Summary};
+pub use scanner::{
+    hash_file, hash_stream, scan_paths, scan_paths_full, scan_paths_with_progress, FileResult,
+    ProgressEvent, Summary,
+};
 
 /// Construct an engine from an explicit config (used by the CLI and tests).
 pub fn build_engine(cfg: &Config) -> Result<Engine> {
