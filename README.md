@@ -1,3 +1,5 @@
+<img width="1500" height="1500" alt="os-icon" src="https://github.com/user-attachments/assets/3c4ca6e2-64b3-45dd-93b0-b3d3f2724234" />
+
 # OpenSentinel
 
 A lightweight, open-source antivirus scanner written in Rust.
