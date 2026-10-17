@@ -31,13 +31,46 @@ suspicious files, without telemetry, ads, paywalls, or a mandatory account.
 - **Automated tests**: SHA-256 vectors, signature round-trip, quarantine
   move/restore/collision lifecycle, non-ASCII filenames, EICAR artifact,
   and UI-independent state-transition tests.
+- **Threat-intelligence provider model**: an honest, five-state verdict model
+  (`Malicious` / `Suspicious` / `Unknown` / `CleanReported` / `ProviderError`)
+  documented in [docs/reputation.md](docs/reputation.md). A provider timeout or
+  offline service is **never** reported as clean. See `src/reputation.rs`.
+- **Local signature provider**: the existing hash-signature DB is exposed as a
+  `ThreatIntelProvider`; `High`→confidence 100, `Medium`→80, `Low`→60, grouped
+  as `opensentinel`.
+- **MalwareBazaar provider**: queries the documented
+  `POST https://mb-api.abuse.ch/api/v1/` hash-lookup endpoint (`query=get_info&hash=<sha256>`).
+  Free, **no API key required** for hash lookup; no file uploads, no scraping.
+  Rate-limited (0.5 req/s, burst 5) and cached. `ProviderError` on failure —
+  never a synthetic clean. See `src/mwb.rs`.
+- **Signed feed**: Ed25519-verified, version-1 feed with monotonic sequence
+  (rollback/replay guard), `expires_at` enforcement, and atomic
+  write-then-rename apply so a crash never leaves a half-written DB. The
+  signing **private key is never in the client** — it lives on the publishing
+  infrastructure. The shipped public key is pinned in `src/feed.rs`. Full
+  format in [docs/feed-format.md](docs/feed-format.md).
+- **Community reports (client-side)**: a validated, deduplicated,
+  rate-limited report record with four categories (`suspected_malware`,
+  `false_positive`, `suspected_behavior`, `confirmed_benign`). A community
+  report alone **never auto-quarantines** and **never yields `Malicious`** —
+  at most `Suspicious`, promotion requires a vetted provider. See
+  `src/community.rs`.
 
 ## What does *not* work yet (planned, not shipped)
 
 - Real-time / on-access protection (Windows kernel integration, Linux FUSE)
 - YARA rule scanning
-- Community threat-intelligence update with signed manifests
-- ClamAV third-party engine
+- VirusTotal provider (opt-in, API-key gated — documented in
+  [docs/reputation.md](docs/reputation.md) §8, not implemented; no placeholder
+  endpoint ships)
+- ClamAV third-party engine (documented only; license/compat verification is
+  a prerequisite, not silently assumed)
+- Live signed-feed update channel (the client verifies and applies a feed if
+  one is supplied, but no feed endpoint is pinned in the binary; the GUI shows
+  "signed feed not configured" until one is documented)
+- Community backend service (the client ships the record format + validation
+  rules; a future `opensentinel-server` repo would implement moderation,
+  abuse-prevention, and abuse-prevention; this repo is client-only)
 - GUI: dark theme, native folder picker, persistent activity history
 
 These are intentionally not faked. The CLI will not claim a database update

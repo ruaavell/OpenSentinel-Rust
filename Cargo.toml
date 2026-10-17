@@ -28,6 +28,8 @@ signal-hook = "0.3"
 eframe = "0.37.0"
 egui = "0.37.0"
 egui_extras = "0.37.0"
+ed25519-zebra = "5.0.0"
+ed25519 = "3.0.0"
 
 [target.'cfg(unix)'.dependencies]
 signal-hook-registry = "1.1"

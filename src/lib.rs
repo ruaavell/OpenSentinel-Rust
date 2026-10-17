@@ -3,20 +3,32 @@
 //! Public library facade. The CLI binary (`main.rs`) and the integration
 //! tests both link against this crate.
 
+mod community;
 mod config;
 mod detection;
 mod error;
+mod feed;
+mod mwb;
 mod quarantine;
+mod reputation;
 mod scanner;
 
 pub mod gui;
 
+pub use community::{CommunityReport, CommunityStore, ReportCategory};
+
 pub use config::{Config, HeuristicSensitivity};
-pub use detection::{load_signatures, Classification, Detection, Engine, Severity};
+pub use detection::{load_signatures, Classification, Detection, Engine, Severity, Signature};
 pub use error::{Error, ErrorKind, Result};
+pub use feed::{apply_feed, verify_feed, FeedRecord, FeedVersion};
+pub use mwb::MwbProvider;
 pub use quarantine::{
     list_quarantined, list_quarantined_in, quarantine_add, quarantine_purge, quarantine_purge_in,
     quarantine_restore, QuarantineEntry,
+};
+pub use reputation::{
+    LocalProvider, ProviderInfo, ProviderStatus, RateLimiter, Reputation, ReputationCache,
+    SourceRef, ThreatIntelProvider, Verdict,
 };
 pub use scanner::{
     hash_file, hash_stream, scan_paths, scan_paths_full, scan_paths_with_progress, FileResult,
